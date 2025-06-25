@@ -1,0 +1,72 @@
+# train.py
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+from model import HistopathologyCNN
+from sklearn.metrics import classification_report
+
+# Step 1: Define Transforms
+transform = transforms.Compose([
+    transforms.Resize((128, 128)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(15),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
+])
+
+# Step 2: Load Datasets
+train_data = datasets.ImageFolder('dataset/train', transform=transform)
+val_data   = datasets.ImageFolder('dataset/val', transform=transform)
+
+train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
+val_loader   = DataLoader(val_data, batch_size=32, shuffle=False)
+
+# Step 3: Setup
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = HistopathologyCNN(num_classes=2).to(device)
+
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# Step 4: Train
+num_epochs = 10
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    correct = 0
+    total = 0
+    
+    for images, labels in train_loader:
+        images, labels = images.to(device), labels.to(device)
+        
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        
+        running_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total += labels.size(0)
+        correct += predicted.eq(labels).sum().item()
+    
+    print(f"Epoch [{epoch+1}/{num_epochs}] - Loss: {running_loss:.4f} - Accuracy: {100*correct/total:.2f}%")
+
+# Step 5: Validate
+model.eval()
+all_preds = []
+all_labels = []
+
+with torch.no_grad():
+    for images, labels in val_loader:
+        images, labels = images.to(device), labels.to(device)
+        outputs = model(images)
+        _, predicted = torch.max(outputs, 1)
+        all_preds.extend(predicted.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+
+print("\nValidation Results:\n")
+print(classification_report(all_labels, all_preds, target_names=train_data.classes))
